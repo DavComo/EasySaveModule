@@ -1,0 +1,178 @@
+from enum import Enum
+import requests
+import json
+
+
+class Block():
+    """
+    A class representing data blocks.
+    """
+
+    def __init__(self, identifier: str, value: str):
+        """
+        The constructor for Block class.
+
+        Parameters:
+            identifier (str): The base identifier of the block.
+            value (str): The assigned value of the block.
+        """
+        self.identifier = identifier
+        self.value = value
+
+    def __str__(self) -> str:
+        return f"({self.identifier} : \'{self.value}\')"
+    
+    def __repr__(self) -> str:
+        return str(self)
+    
+    @staticmethod
+    def blockToDict(block: "Block") -> dict[str, str]:
+        """
+        Return a dictionary representing a data Block.
+        """
+        return {block.identifier: block.value}
+    
+    @staticmethod
+    def dictToBlock(dictionary: dict[str, str]) -> "Block":
+        """
+        Return a Block representing a dictionary.
+        """
+        return Block(dictionary['identifier'], dictionary['value'])
+
+
+
+class easySaveClient:
+    class __protocols(str, Enum):
+        http = "http"
+
+        def __str__(self):
+            return self.name
+    
+    class __requestType(str, Enum):
+        get = "get"
+        post = "post"
+        patch = "patch"
+
+        def __str__(self):
+            return self.name
+
+
+    def __init__(self, username: str, password: str, address: str="63.179.18.244:80/api", protocol: __protocols=__protocols.http) -> None:
+        """
+        The constructor for easySaveClient class.
+
+        Parameters:
+            username (str): Client username for login.
+            password (str): Client password for login.
+        """
+        self.__session = requests.Session()
+
+        self.username = username
+        self.address = address
+        self.protocol = protocol
+
+        self.accessKey = json.loads(self.__call(self.__requestType.get, "login", [("username", username), ("password", password)]).text)["accessKey"]
+
+        self.__session.headers.update({"RequesterUsername" : self.username, "RequesterAccessKey" : self.accessKey})
+
+    def __call(self, requestMethod: __requestType, location: str, arguments: list[tuple[str, str]]) -> requests.Response:
+        response: requests.Response
+
+        argumentPrelimList: list[str] = []
+        for argumentTuple in arguments:
+            argumentPrelimList.append(f"{argumentTuple[0]}={argumentTuple[1]}")
+        
+        argumentString = "&".join(argumentPrelimList)
+        
+        func = getattr(self.__session, str(requestMethod))
+        response = func(url=f"{self.protocol}://{self.address}/{location}?{argumentString}")
+
+        return response
+    
+
+    def createBlock(self, blockname: str, value: str) -> None:
+        """
+        Function to create a new data block using string inputs.
+
+        Parameters:
+            blockname (str): The base identifier of the new block.
+            value (str): The assigned value of the new block.
+        """
+        self.__call(self.__requestType.post, "create_block", [("extendedIdentifier", blockname), ("value", value)])
+    
+    def createBlock_Typed(self, block: Block) -> None:
+        """
+        Function to create a new data block using Block input.
+
+        Parameters:
+            block (Block): Full Block object to be created.
+        """
+        blockname = block.identifier
+        value = block.value
+        self.createBlock(blockname, value)
+
+
+    def getBlocks(self, blockname: str, strict: bool = False) -> list[dict[str, str]] | dict[str, str]:
+        """
+        Function to retrieve data blocks using base identifier.
+
+        Parameters:
+            blockname (str): The start of the base identifier of the blocks to query for.
+            strict (bool): Whether to retrieve only the block with an identical identifier to blockname.
+
+        Returns:
+            BlockList (list[dict[str, str]]): List of blocks in a dictionary identifier:value format. Returns only a single entry if strict=True.
+        """
+        rawResults = json.loads(self.__call(self.__requestType.get, "get_blocks", [("extendedIdentifier", blockname)]).text)['blockList']
+
+        refinedResults: list[dict[str, str]] = []
+        for result in rawResults:
+            newIdentifier: str = ".".join(result['identifier'].split(".")[2:])
+            newDict: dict[str, str] = {"identifier" : newIdentifier, "value" : result['value']}
+            if strict and newDict['identifier'] == blockname:
+                return newDict
+            elif not strict:
+                refinedResults.append(newDict)
+        return refinedResults
+    
+    def getBlocksTyped(self, blockname: str, strict: bool = False) -> list[Block] | Block:
+        """
+        Function to retrieve data blocks using base identifier using Block object format.
+
+        Parameters:
+            blockname (str): The start of the base identifier of the blocks to query for.
+            strict (bool): Whether to retrieve only the block with an identical identifier to blockname.
+
+        Returns:
+            BlockList (list[Block] | Block): List of blocks in Block object format. Returns only a single block if strict=True.
+        """
+        results: list[dict[str, str]] | dict[str, str] = self.getBlocks(blockname, strict)
+        if type(results) == type({}):
+            return Block(results['identifier'], results['value']) # type: ignore
+
+        refinedResults: list[Block] = []
+        for result in results:
+            newBlock = Block(result['identifier'], result['value']) # type: ignore
+            refinedResults.append(newBlock)
+    
+        return refinedResults
+
+
+    def updateBlock(self, blockname: str, newValue: str) -> None:
+        """
+        Function to update a block.
+
+        Parameters:
+            blockname (str): The base identifier of the block to update.
+            newValue (str): The new value of the block.
+        """
+        self.__call(self.__requestType.patch, "update_block", [("extendedIdentifier", blockname), ("value", newValue)])
+
+    def deleteBlock(self, blockname: str) -> None:
+        """
+        Function to delete a block.
+
+        Parameters:
+            blockname (str): The base identifier of the block to delete.
+        """
+        self.__call(self.__requestType.post, "delete_block", [("extendedIdentifier", blockname)])
