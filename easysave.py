@@ -159,7 +159,7 @@ class easySaveClient:
         """
         self.__call(self.__requestType.post, "create_block", [("extendedIdentifier", blockname), ("value", value)])
     
-    def createBlock_Typed(self, block: Block) -> None:
+    def createBlockTyped(self, block: Block) -> None:
         """
         Function to create a new data block using Block input.
 
