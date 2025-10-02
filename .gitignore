@@ -2,4 +2,4 @@
 /__pycache__
 /build
 /dist
-/easysave_DavComo.egg-info
+/*.egg-info

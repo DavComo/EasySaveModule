@@ -1,6 +1,5 @@
 from enum import Enum
 import requests
-import json
 
 
 class Block():
@@ -30,7 +29,7 @@ class Block():
         """
         Return a dictionary representing a data Block.
         """
-        return {block.identifier: block.value}
+        return {"identifier": block.identifier, "value": block.value}
     
     @staticmethod
     def dictToBlock(dictionary: dict[str, str]) -> "Block":
@@ -42,19 +41,62 @@ class Block():
 
 
 class easySaveClient:
+    """
+    easySaveClient is a client class for interacting with the EasySave API, providing methods for authentication, block creation, retrieval, updating, and deletion.
+    Attributes:
+        username (str): The username used for authentication.
+        address (str): The server address and API endpoint.
+        protocol (__protocols): The protocol used for requests (default is "http").
+        accessKey (str): The access key obtained after successful authentication.
+    Methods:
+        __init__(username: str, password: str, address: str = "63.179.18.244:80/api", protocol: __protocols = __protocols.http) -> None
+            Initializes the easySaveClient, authenticates the user, and sets up the session.
+        createBlock(blockname: str, value: str) -> None
+            Creates a new data block with the specified identifier and value.
+        createBlock_Typed(block: Block) -> None
+            Creates a new data block using a Block object.
+        getBlocks(blockname: str, strict: bool = False) -> list[dict[str, str]] | dict[str, str]
+            Retrieves data blocks matching the base identifier. Returns a list of blocks or a single block if strict is True.
+        getBlocksTyped(blockname: str, strict: bool = False) -> list[Block] | Block
+            Retrieves data blocks as Block objects matching the base identifier. Returns a list of Block objects or a single Block if strict is True.
+        updateBlock(blockname: str, newValue: str) -> None
+            Updates the value of an existing block.
+        deleteBlock(blockname: str) -> None
+            Deletes a block with the specified identifier.
+    """
     class __protocols(str, Enum):
+        """
+        An enumeration representing supported network protocols.
+
+        Attributes:
+            http (str): Represents the HTTP protocol.
+
+        Methods:
+            __str__(): Returns the name of the protocol as a string.
+        """
         http = "http"
 
         def __str__(self):
-            return self.name
+            return self.value
     
     class __requestType(str, Enum):
+        """
+        An enumeration representing HTTP request types.
+
+        Attributes:
+            get (str): Represents the HTTP GET request method.
+            post (str): Represents the HTTP POST request method.
+            patch (str): Represents the HTTP PATCH request method.
+
+        Methods:
+            __str__(): Returns the name of the request type as a string.
+        """
         get = "get"
         post = "post"
         patch = "patch"
 
         def __str__(self):
-            return self.name
+            return self.value
 
 
     def __init__(self, username: str, password: str, address: str="63.179.18.244:80/api", protocol: __protocols=__protocols.http) -> None:
@@ -71,11 +113,28 @@ class easySaveClient:
         self.address = address
         self.protocol = protocol
 
-        self.accessKey = json.loads(self.__call(self.__requestType.get, "login", [("username", username), ("password", password)]).text)["accessKey"]
+        #Authenticate using password and username. If successful, save returned auth key for future authentication 
+        response = self.__call(self.__requestType.get, "login", [("username", username), ("password", password)])
+        try:
+            data = response.json()
+        except Exception:
+            raise RuntimeError("Authentication failed: Server response is not valid JSON.")
+        if "accessKey" not in data:
+            raise RuntimeError(f"Authentication failed: 'accessKey' not found in server response. Response: {data}")
+        self.accessKey = data["accessKey"]
 
         self.__session.headers.update({"RequesterUsername" : self.username, "RequesterAccessKey" : self.accessKey})
 
     def __call(self, requestMethod: __requestType, location: str, arguments: list[tuple[str, str]]) -> requests.Response:
+        """
+        Executes an HTTP request using the specified method, location, and arguments.
+        Args:
+            requestMethod (__requestType): The HTTP method to use for the request (e.g., 'get', 'post').
+            location (str): The endpoint or path to append to the base URL.
+            arguments (list[tuple[str, str]]): A list of key-value pairs to be included as query parameters in the request.
+        Returns:
+            requests.Response: The response object resulting from the HTTP request.
+        """
         response: requests.Response
 
         argumentPrelimList: list[str] = []
@@ -123,11 +182,15 @@ class easySaveClient:
         Returns:
             BlockList (list[dict[str, str]]): List of blocks in a dictionary identifier:value format. Returns only a single entry if strict=True.
         """
-        rawResults = json.loads(self.__call(self.__requestType.get, "get_blocks", [("extendedIdentifier", blockname)]).text)['blockList']
+        rawResults = self.__call(self.__requestType.get, "get_blocks", [("extendedIdentifier", blockname)]).json()['blockList']
 
         refinedResults: list[dict[str, str]] = []
         for result in rawResults:
-            newIdentifier: str = ".".join(result['identifier'].split(".")[2:])
+            identifier_parts = result['identifier'].split(".")
+            if len(identifier_parts) >= 3:
+                newIdentifier: str = ".".join(identifier_parts[2:])
+            else:
+                newIdentifier: str = result['identifier']
             newDict: dict[str, str] = {"identifier" : newIdentifier, "value" : result['value']}
             if strict and newDict['identifier'] == blockname:
                 return newDict
@@ -147,7 +210,7 @@ class easySaveClient:
             BlockList (list[Block] | Block): List of blocks in Block object format. Returns only a single block if strict=True.
         """
         results: list[dict[str, str]] | dict[str, str] = self.getBlocks(blockname, strict)
-        if type(results) == type({}):
+        if isinstance(results, dict):
             return Block(results['identifier'], results['value']) # type: ignore
 
         refinedResults: list[Block] = []
